@@ -266,12 +266,27 @@ class EmailContentSensor(Entity):
         Store the files locally and return a list of paths.
         """
         attachments = []
-        for i in range(1, len(email_message.get_payload())):
-            attachment = email_message.get_payload()[i]
-            filename = attachment.get_filename()
-            fullpath = os.path.join(storage_path, filename)
-            open(fullpath, 'wb').write(attachment.get_payload(decode=True))
-            attachments.append(fullpath)
+        try:
+            if email_message.is_multipart():
+                for part in email_message.walk():
+                    ctype = part.get_content_type()
+                    cdispo = str(part.get('Content-Disposition'))
+                    if 'attachment' not in cdispo:
+                        continue
+                    if ctype == 'text/csv' or ctype == 'text/comma-separated-values':
+                        filename = part.get_filename()
+                        fullpath = os.path.join(storage_path, filename)
+                        open(fullpath, 'wb').write(part.get_payload(decode=True))
+                        attachments.append(fullpath)
+                        continue
+            else:
+                _LOGGER.error("Not multipart")
+                fullpath = os.path.join(storage_path, filename)
+                open(fullpath, 'wb').write(attachment.get_payload(decode=True))
+                attachments.append(fullpath)
+        except Exception as e:
+                _LOGGER.error(f"Unexpected imap attachment: {email_message}")
+                raise e
 
         return attachments
 
