@@ -3,6 +3,7 @@ from collections import deque
 import datetime
 import email
 import imaplib
+import pathlib
 import logging
 import os
 
@@ -119,18 +120,21 @@ class EmailReader:
             return None
         raw_email = message_data[0][1]
         email_message = email.message_from_bytes(raw_email)
-
+        self.connection.uid('STORE', message_uid, '+FLAGS', '\SEEN')
         return email_message
 
     def read_next(self):
         """Read the next email from the email server."""
         try:
-            self.connection.select(self._folder, readonly=True)
+            self.connection.select(self._folder, readonly=False)
 
             if not self._unread_ids:
-                search = f"SINCE {datetime.date.today():%d-%b-%Y}"
+                _LOGGER.info("not unread ids")
+                #search = f"(UNSEEN) SINCE {datetime.date.today():%d-%b-%Y}"
+                search = "(UNSEEN)"
                 if self._last_id is not None:
-                    search = f"UID {self._last_id}:*"
+                    _LOGGER.info("Last id set")
+                    search = f"(UNSEEN) UID {self._last_id}:*"
 
                 _, data = self.connection.uid("search", None, search)
                 self._unread_ids = deque(data[0].split())
@@ -273,8 +277,15 @@ class EmailContentSensor(Entity):
                     cdispo = str(part.get('Content-Disposition'))
                     if 'attachment' not in cdispo:
                         continue
+                    filename = part.get_filename()
+                    fileExtension = pathlib.Path(filename).suffix
+                    
                     if ctype == 'text/csv' or ctype == 'text/comma-separated-values':
-                        filename = part.get_filename()
+                        fullpath = os.path.join(storage_path, filename)
+                        open(fullpath, 'wb').write(part.get_payload(decode=True))
+                        attachments.append(fullpath)
+                        continue
+                    if ctype == 'application/octet-stream' and fileExtension == '.csv':
                         fullpath = os.path.join(storage_path, filename)
                         open(fullpath, 'wb').write(part.get_payload(decode=True))
                         attachments.append(fullpath)
