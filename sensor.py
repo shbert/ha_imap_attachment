@@ -269,17 +269,31 @@ class EmailContentSensor(Entity):
         Parse attachments on the email.
         Store the files locally and return a list of paths.
         """
+        _LOGGER.debug(f"Checking mail multipart attachment: {email_message.is_multipart()}")
         attachments = []
         try:
             if email_message.is_multipart():
                 for part in email_message.walk():
                     ctype = part.get_content_type()
                     cdispo = str(part.get('Content-Disposition'))
+                    #_LOGGER.debug(f"Content-Disposition (is_attachment) / Content-Type: {cdispo} ({part.is_attachment()}) / {ctype}")
+                    _LOGGER.debug(f"Content-Disposition / Content-Type: {cdispo} / {ctype}")
+
+                    if ctype == 'text/calendar' and 'attachment' not in cdispo:
+                        _LOGGER.debug(f"Processing calendar event: {part.get_payload(decode=True)}")
+                        filename = part.get_filename(failobj="calendar_event.ics")
+                        fullpath = os.path.join(storage_path, filename)
+                        open(fullpath, 'wb').write(part.get_payload(decode=True))
+                        attachments.append(fullpath)
+                        continue
+
                     if 'attachment' not in cdispo:
+                        _LOGGER.debug("Type attachment not in Content-Disposition")
                         continue
                     filename = part.get_filename()
                     fileExtension = pathlib.Path(filename).suffix
                     
+                    _LOGGER.debug(f"ctype {ctype}")
                     if ctype == 'text/csv' or ctype == 'text/comma-separated-values':
                         fullpath = os.path.join(storage_path, filename)
                         open(fullpath, 'wb').write(part.get_payload(decode=True))
@@ -292,9 +306,13 @@ class EmailContentSensor(Entity):
                         continue
             else:
                 _LOGGER.error("Not multipart")
-                fullpath = os.path.join(storage_path, filename)
-                open(fullpath, 'wb').write(attachment.get_payload(decode=True))
-                attachments.append(fullpath)
+                for i in range(1, email_message.get_paayload()):
+                    attachment = email_message.get_payload()[i]
+                    filename = attachment.get_filename()
+                    fullpath = os.path.join(storage_path, filename)
+                    open(fullpath, 'wb').write(attachment.get_payload(decode=True))
+                    attachments.append(fullpath)
+                    
         except Exception as e:
                 _LOGGER.error(f"Unexpected imap attachment: {email_message}")
                 raise e
